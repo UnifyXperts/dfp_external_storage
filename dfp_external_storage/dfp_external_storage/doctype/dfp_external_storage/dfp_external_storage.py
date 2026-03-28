@@ -267,7 +267,7 @@ class MinioConnection:
 		"""
 		if type(expires) == int:
 			expires = timedelta(seconds=expires)
-		return self.client.presigned_get_objectself.client.presigned_get_object(
+		return self.client.presigned_get_object(
         	bucket_name=bucket_name,
         	object_name=object_name,
         	expires=expires,
