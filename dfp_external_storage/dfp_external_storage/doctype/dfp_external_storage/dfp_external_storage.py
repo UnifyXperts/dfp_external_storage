@@ -160,7 +160,7 @@ class DFPExternalStorage(Document):
 
 	def remote_files_list(self):
 		prefix = (self.key_prefix or "").strip().strip("/")
-		 return self.client.list_objects(self.bucket_name, prefix=prefix or None, recursive=True)
+		return self.client.list_objects(self.bucket_name, prefix=prefix or None, recursive=True)
 
 
 class MinioConnection:
