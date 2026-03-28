@@ -27,7 +27,7 @@ DFP_EXTERNAL_STORAGE_URL_SEGMENT_FOR_FILE_LOAD = "file"
 DFP_EXTERNAL_STORAGE_CONNECTION_FIELDS = [
 	"type", "endpoint", "secure", "bucket_name", "region", "access_key", "secret_key"]
 DFP_EXTERNAL_STORAGE_CRITICAL_FIELDS = [
-	"type", "endpoint", "secure", "bucket_name", "region", "access_key", "secret_key", "folders"]
+	"type", "endpoint", "secure", "bucket_name", "key_prefix", "region", "access_key", "secret_key", "folders"]
 
 
 class S3FileProxy:
@@ -159,7 +159,8 @@ class DFPExternalStorage(Document):
 				pass
 
 	def remote_files_list(self):
-		return self.client.list_objects(self.bucket_name, recursive=True)
+		prefix = (self.key_prefix or "").strip().strip("/")
+		 return self.client.list_objects(self.bucket_name, prefix=prefix or None, recursive=True)
 
 
 class MinioConnection:
@@ -289,7 +290,7 @@ class MinioConnection:
 		return self.client.put_object(bucket_name=bucket_name,
  object_name=object_name, data=data, metadata=metadata, length=length)
 
-	def list_objects(self, bucket_name:str, recursive=True):
+	def list_objects(self, bucket_name:str, prefix=None, recursive=True):
 		"""
 		Minio params:
 		:param bucket_name: Name of the bucket.
@@ -305,7 +306,7 @@ class MinioConnection:
 		# 							to be used or not.
 		:return: Iterator of :class:`Object <Object>`.
 		"""
-		return self.client.list_objects(bucket_name=bucket_name, recursive=recursive)
+		return self.client.list_objects(bucket_name=bucket_name, prefix=prefix, recursive=recursive)
 
 
 class DFPExternalStorageFile(File):
@@ -397,7 +398,9 @@ class DFPExternalStorageFile(File):
 		# Define S3 key
 		# key = f"{frappe.local.site}/{self.file_name}" # << Before 2024.03.03
 		base, extension = os.path.splitext(self.file_name)
-		key = f"{frappe.local.site}/{base}-{self.name}{extension}"
+		prefix = (self.dfp_external_storage_doc.key_prefix or "").strip().strip("/")
+		site_key = f"{frappe.local.site}/{base}-{self.name}{extension}"
+		key = f"{prefix}/{site_key}" if prefix else site_key
 
 		is_public = "/public" if not self.is_private else ""
 		if not local_file:
