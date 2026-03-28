@@ -235,7 +235,7 @@ class MinioConnection:
 		"""
 		return self.client.fget_object(bucket_name=bucket_name, object_name=object_name,file_path=file_path)
 
-	def presigned_get_object(self, bucket_name:str, object_name:str, expires:int=timedelta(hours=3)):
+	def presigned_get_object(self, bucket_name:str, object_name:str, expires:int=timedelta(hours=3), response_headers=None):
 		"""
 		Minio params:
 		Get presigned URL of an object to download its data with expiry time
@@ -268,10 +268,10 @@ class MinioConnection:
 		if type(expires) == int:
 			expires = timedelta(seconds=expires)
 		return self.client.presigned_get_object(
-        	bucket_name=bucket_name,
-        	object_name=object_name,
-        	expires=expires,
-        	response_headers={"response-content-disposition": "inline"}
+			bucket_name=bucket_name,
+			object_name=object_name,
+			expires=expires,
+			response_headers=response_headers or {"response-content-disposition": "inline"}
     	)
 
 	def put_object(self, bucket_name, object_name, data, metadata=None, length=-1):
@@ -604,11 +604,18 @@ class DFPExternalStorageFile(File):
 		if not self.dfp_is_s3_remote_file() or not self.dfp_external_storage_doc.presigned_urls:
 			return
 		if self.dfp_external_storage_doc.presigned_mimetypes_starting and self.dfp_mime_type_guess_by_file_name:
-			# get list exploding by new line, removing empty lines and cleaning starting and ending spaces
 			presigned_mimetypes_starting = [i.strip() for i in self.dfp_external_storage_doc.presigned_mimetypes_starting.split("\n") if i.strip()]
 			if not any(self.dfp_mime_type_guess_by_file_name.startswith(i) for i in presigned_mimetypes_starting):
 				return
-		return self.dfp_external_storage_client.presigned_get_object(bucket_name=self.dfp_external_storage_doc.bucket_name, object_name=self.dfp_external_storage_s3_key, expires=self.dfp_external_storage_doc.setting_presigned_url_expiration)
+		response_headers = {"response-content-disposition": "inline"}
+		if self.dfp_mime_type_guess_by_file_name:
+			response_headers["response-content-type"] = self.dfp_mime_type_guess_by_file_name
+		return self.dfp_external_storage_client.presigned_get_object(
+			bucket_name=self.dfp_external_storage_doc.bucket_name,
+			object_name=self.dfp_external_storage_s3_key,
+			expires=self.dfp_external_storage_doc.setting_presigned_url_expiration,
+			response_headers=response_headers
+		)
 
 
 def hook_file_before_save(doc, method):
