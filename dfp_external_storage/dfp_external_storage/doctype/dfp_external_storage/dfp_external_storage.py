@@ -600,16 +600,19 @@ class DFPExternalStorageFile(File):
 		if content_type:
 			return content_type
 
-	def dfp_presigned_url_get(self):
+	def dfp_presigned_url_get(self, force_download=False):
 		if not self.dfp_is_s3_remote_file() or not self.dfp_external_storage_doc.presigned_urls:
 			return
 		if self.dfp_external_storage_doc.presigned_mimetypes_starting and self.dfp_mime_type_guess_by_file_name:
 			presigned_mimetypes_starting = [i.strip() for i in self.dfp_external_storage_doc.presigned_mimetypes_starting.split("\n") if i.strip()]
 			if not any(self.dfp_mime_type_guess_by_file_name.startswith(i) for i in presigned_mimetypes_starting):
 				return
-		response_headers = {"response-content-disposition": "inline"}
+
+		disposition = "attachment" if force_download else "inline"
+		response_headers = {"response-content-disposition": disposition}
 		if self.dfp_mime_type_guess_by_file_name:
 			response_headers["response-content-type"] = self.dfp_mime_type_guess_by_file_name
+
 		return self.dfp_external_storage_client.presigned_get_object(
 			bucket_name=self.dfp_external_storage_doc.bucket_name,
 			object_name=self.dfp_external_storage_s3_key,
@@ -719,10 +722,12 @@ class DFPExternalStorageFileRenderer:
 def file(name:str, file:str):
 	if not name or not file:
 		raise frappe.PageDoesNotExistError()
+	
+	is_download = frappe.request.args.get("download")
 
 	cache_key = f"{DFP_EXTERNAL_STORAGE_PUBLIC_CACHE_PREFIX}{name}"
 
-	response_values = frappe.cache().get_value(cache_key)
+	response_values = None if is_download else frappe.cache().get_value(cache_key)
 	if not response_values:
 		try:
 			doc = frappe.get_doc("File", name)
@@ -739,7 +744,7 @@ def file(name:str, file:str):
 		response_values["headers"] = []
 
 		try:
-			presigned_url = doc.dfp_presigned_url_get()
+			presigned_url = doc.dfp_presigned_url_get(force_download=is_download)
 			if presigned_url:
 				frappe.flags.redirect_location = presigned_url
 				raise frappe.Redirect
