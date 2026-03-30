@@ -706,6 +706,44 @@ def hook_file_before_save(doc, method):
 			frappe.throw(error_msg)
 
 	# Clean cache when updating "File"
+	# if doc.dfp_external_storage_s3_key:
+	# 	cache_key = f"{DFP_EXTERNAL_STORAGE_PUBLIC_CACHE_PREFIX}{doc.name}"
+	# 	frappe.cache().delete_value(cache_key)
+
+	# MODIFY "File": Case 4: is_private changed => move file to correct S3 prefix + update file_url
+	elif previous.dfp_external_storage_s3_key and doc.dfp_external_storage_s3_key and previous.is_private != doc.is_private:
+		try:
+			old_key = previous.dfp_external_storage_s3_key
+			visibility = "private" if doc.is_private else "public"
+			parts = old_key.split("/")
+			if parts[1] in ("public", "private"):
+				parts[1] = visibility
+			else:
+				parts.insert(1, visibility)
+			new_key = "/".join(parts)
+
+			from minio.commonconfig import CopySource
+			doc.dfp_external_storage_doc.client.client.copy_object(
+				bucket_name=doc.dfp_external_storage_doc.bucket_name,
+				object_name=new_key,
+				source=CopySource(doc.dfp_external_storage_doc.bucket_name, old_key),
+			)
+			doc.dfp_external_storage_doc.client.remove_object(
+				bucket_name=doc.dfp_external_storage_doc.bucket_name,
+				object_name=old_key,
+			)
+			doc.dfp_external_storage_s3_key = new_key
+			protocol = "https" if doc.dfp_external_storage_doc.secure else "http"
+			if doc.is_private:
+				doc.file_url = f"/{DFP_EXTERNAL_STORAGE_URL_SEGMENT_FOR_FILE_LOAD}/{doc.name}/{doc.file_name}"
+			else:
+				doc.file_url = f"{protocol}://{doc.dfp_external_storage_doc.bucket_name}.s3.{doc.dfp_external_storage_doc.region}.amazonaws.com/{new_key}"
+		except Exception as e:
+			error_msg = _("Error moving file between public/private folders in S3.")
+			frappe.log_error(f"{error_msg}: {doc.file_name}", message=e)
+			frappe.throw(f"{error_msg} {str(e)}")
+
+	# Clean cache when updating "File"
 	if doc.dfp_external_storage_s3_key:
 		cache_key = f"{DFP_EXTERNAL_STORAGE_PUBLIC_CACHE_PREFIX}{doc.name}"
 		frappe.cache().delete_value(cache_key)
