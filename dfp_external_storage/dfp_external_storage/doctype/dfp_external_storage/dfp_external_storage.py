@@ -235,7 +235,7 @@ class MinioConnection:
 		"""
 		return self.client.fget_object(bucket_name=bucket_name, object_name=object_name,file_path=file_path)
 
-	def presigned_get_object(self, bucket_name:str, object_name:str, expires:int=timedelta(hours=3), response_headers=None):
+	def presigned_get_object(self, bucket_name:str, object_name:str, expires:int=timedelta(hours=3), response_headers:dict=None):
 		"""
 		Minio params:
 		Get presigned URL of an object to download its data with expiry time
@@ -271,10 +271,10 @@ class MinioConnection:
 			bucket_name=bucket_name,
 			object_name=object_name,
 			expires=expires,
-			response_headers=response_headers or {"response-content-disposition": "inline"}
-    	)
+			response_headers=response_headers
+		)
 
-	def put_object(self, bucket_name, object_name, data, metadata=None, length=-1):
+	def put_object(self, bucket_name, object_name, data, metadata=None, length=-1, content_type="application/octet-stream"):
 		"""
 		Minio params:
 		:param bucket_name: Name of the bucket.
@@ -293,7 +293,7 @@ class MinioConnection:
 		:param legal_hold: Flag to set legal hold for the object.
 		"""
 		return self.client.put_object(bucket_name=bucket_name,
- object_name=object_name, data=data, metadata=metadata, length=length)
+        	object_name=object_name, data=data, metadata=metadata, length=length, content_type=content_type)
 
 	def list_objects(self, bucket_name:str, prefix=None, recursive=True):
 		"""
@@ -414,19 +414,25 @@ class DFPExternalStorageFile(File):
 		try:
 			if not os.path.exists(local_file):
 				frappe.throw(_("Local file not found"))
+			
+			import mimetypes
+			content_type, _ = mimetypes.guess_type(self.file_name)
+			content_type = content_type or "application/octet-stream"
+
 			with open(local_file, "rb") as f:
 				self.dfp_external_storage_client.put_object(
 					bucket_name=self.dfp_external_storage_doc.bucket_name,
 					object_name=key,
 					data=f,
 					length=os.path.getsize(local_file),
-					# Meta removed because same s3 file can be used within different File docs
-					# metadata={"frappe_file_id": self.name}
+					content_type=content_type,
 				)
 
 			self.dfp_external_storage_s3_key = key
 			self.dfp_external_storage = self.dfp_external_storage_doc.name
-			self.file_url = f"/{DFP_EXTERNAL_STORAGE_URL_SEGMENT_FOR_FILE_LOAD}/{self.name}/{self.file_name}"
+			protocol = "https" if self.dfp_external_storage_doc.secure else "http"
+			self.file_url = f"{protocol}://{self.dfp_external_storage_doc.bucket_name}.s3.{self.dfp_external_storage_doc.region}.amazonaws.com/{key}"
+			# self.file_url = f"/{DFP_EXTERNAL_STORAGE_URL_SEGMENT_FOR_FILE_LOAD}/{self.name}/{self.file_name}"
 			os.remove(local_file)
 		except Exception as e:
 			error_msg = _("Error saving file in remote folder: {}").format(str(e))
@@ -619,6 +625,23 @@ class DFPExternalStorageFile(File):
 			expires=self.dfp_external_storage_doc.setting_presigned_url_expiration,
 			response_headers=response_headers
 		)
+	
+@frappe.whitelist()
+def get_download_url(file_name):
+	doc = frappe.get_doc("File", file_name)
+	if doc.dfp_external_storage and doc.dfp_external_storage_s3_key:
+		dfp_doc = frappe.get_doc("DFP External Storage", doc.dfp_external_storage)
+		url = dfp_doc.client.presigned_get_object(
+			bucket_name=dfp_doc.bucket_name,
+			object_name=doc.dfp_external_storage_s3_key,
+			expires=dfp_doc.setting_presigned_url_expiration,
+			response_headers={
+				"response-content-disposition": f"attachment; filename={doc.file_name}"
+			}
+		)
+		return url
+	return doc.file_url
+	
 
 
 def hook_file_before_save(doc, method):
