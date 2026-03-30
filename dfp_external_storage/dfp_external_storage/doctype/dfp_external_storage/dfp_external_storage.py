@@ -404,8 +404,9 @@ class DFPExternalStorageFile(File):
 		# key = f"{frappe.local.site}/{self.file_name}" # << Before 2024.03.03
 		base, extension = os.path.splitext(self.file_name)
 		prefix = (self.dfp_external_storage_doc.key_prefix or "").strip().strip("/")
+		visibility = "private" if self.is_private else "public"
 		site_key = f"{frappe.local.site}/{base}-{self.name}{extension}"
-		key = f"{prefix}/{site_key}" if prefix else site_key
+		key = f"{prefix}/{visibility}/{site_key}" if prefix else f"{visibility}/{site_key}"
 
 		is_public = "/public" if not self.is_private else ""
 		if not local_file:
@@ -430,10 +431,13 @@ class DFPExternalStorageFile(File):
 
 			self.dfp_external_storage_s3_key = key
 			self.dfp_external_storage = self.dfp_external_storage_doc.name
-			protocol = "https" if self.dfp_external_storage_doc.secure else "http"
-			self.file_url = f"{protocol}://{self.dfp_external_storage_doc.bucket_name}.s3.{self.dfp_external_storage_doc.region}.amazonaws.com/{key}"
-			# self.file_url = f"/{DFP_EXTERNAL_STORAGE_URL_SEGMENT_FOR_FILE_LOAD}/{self.name}/{self.file_name}"
+			if self.is_private:
+				self.file_url = f"/{DFP_EXTERNAL_STORAGE_URL_SEGMENT_FOR_FILE_LOAD}/{self.name}/{self.file_name}"
+			else:
+				protocol = "https" if self.dfp_external_storage_doc.secure else "http"
+				self.file_url = f"{protocol}://{self.dfp_external_storage_doc.bucket_name}.s3.{self.dfp_external_storage_doc.region}.amazonaws.com/{key}"
 			os.remove(local_file)
+			
 		except Exception as e:
 			error_msg = _("Error saving file in remote folder: {}").format(str(e))
 			frappe.log_error(f"{error_msg}: {self.file_name}", message=e)
